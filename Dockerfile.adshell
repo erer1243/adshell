@@ -1,0 +1,14 @@
+FROM adshell-base
+
+# Username and password for attacker's user
+ARG username
+ARG password
+
+RUN test -n "$username" && test -n "$password" && \                           # Require username and password
+    adduser --shell /bin/bash --gecos "" --disabled-password "$username" && \ # Add provided user
+    echo "$username:$password" | chpasswd && \
+    adduser "$username" sudo
+
+USER "$username"
+WORKDIR "/home/$username"
+CMD bash

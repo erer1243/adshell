@@ -1,0 +1,3 @@
+FROM ubuntu:20.04
+
+RUN yes | unminimize && DEBIAN_FRONTEND=noninteractive apt-get -y install sudo man wget curl ssh

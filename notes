@@ -1,0 +1,43 @@
+BEGINNING
+=========
+For obvious reason, sshd has no option to just let everyone in.
+Some alternatives include sshsame, cowrie (included in adhd project), 
+
+There seems to be a lot of documentation on escaping restricted shells:
+eg https://null-byte.wonderhowto.com/how-to/escape-restricted-shell-environments-linux-0341685/
+
+Probably better to use docker with an open shell to see what they do.
+
+DOCKERFILE DESIGN
+=================
+I cannot seem to force docker to use its cache when unminimizing ubuntu.
+It would be unacceptable to redownload all of those packages on each
+run of the shell as it would eat up time and disk space. So I decided to
+use two dockerfiles, one for an unminimized ubuntu base and one for the shell
+environment with the custom user.
+
+SETTING UP COWRIE
+=================
+There are a few issues with cowrie, which lead me to believe I need to modestly modify it
+or use another ssh proxy.
+
+ATTACKER AUTHENTICATION ISSUES
+The two default options for authenticating with cowrie are a database of predetermined usernames
+and passwords (this one allows for pattern matching and basic logic, which is pretty interesting),
+as well as an authentication system that will accept any username/password after a random number
+of authentication attempts. While the UserDB method is acceptable (and the random auth method seems
+quite lame), it leaves some features to be desired.
+
+One feature I would like to see is locking a login to a specific IP. Here is my idea for the
+functionality. First, authentication should fail a few times. Then, any username/password will
+be accepted. Once an IP address successfully logs into the shell, it is locked to using that
+specific user/pass combo forever. Also, if another IP address attempts authentication with
+a previously accepted combo, it is immediately successful and again locked to using it. To me,
+this represents the most realistic view of a system from the outside. If an attacker successfully
+logged in with one combo and then it failed later in time or from a different IP, suspicion
+would be raised that the system is a honeypot. Similarly it would be suspicious if two different
+combos worked for the same machine.
+
+Cowrie authentication is done via simple python classes. It doesn't look too hard to create this.
+Perhaps this could be further expanded upon by locking persistent filesystems to specific IPs or
+specific login combos.
