@@ -1,43 +1,125 @@
-BEGINNING
-=========
-For obvious reason, sshd has no option to just let everyone in.
-Some alternatives include sshsame, cowrie (included in adhd project), 
+HONEYPOT GOALS
+==============
+In general, I am looking to be able to have/do the following things with a honeypot:
+* Login over ssh
+* A real or realistically behaving shell that cannot be distinguished as a honeypot by something
+    simple, eg missing shell features
+* Realistic password authentication behavior.
+* Realistic system details, potentially generated from information gathered from the attacker's
+    auth. Eg, username and password should match ssh login.
+* Ability to connect to other devices in the local network
+* Accept and store uploaded files
+* Process logged data with ELK stack
 
+HONEYPOT OPTIONS
+================
+* sshesame
+    It is a small codebase of just 3 go files, which is easily modifiable. I am not sure if the SSH
+    protocol is fully and correctly implemented, however. It seems too good to be true that it could
+    be done in a few hundred lines.
+
+* cowrie (included in adhd project)
+    It is a large, winding python codebase. Also is based on the twisted networking library, which I
+    have found difficult to grasp in cowrie (eg, some call to twisted is made that returns an opaque
+    handle and that handle is then used in many different files/locations under different names,
+    making it hard to track when trying to read the code).
+
+* modifying openssh (or similar)
+    My personal favorite idea, as I find writing software more engaging than setting up preexisting
+    tools. Also, it is guaranteed to have a complete and correct implementation of ssh protocol (at
+    least before we rip some of it out). Am unsure how viable this is, the codebase is huge and
+    likely the most complicated. It does however have the benefit of all being implemented in one
+    place instead of calling out to large libraries. The code is also written in a very standard
+    fashion, and c's strong type system and limited features allow for fewer ways that features
+    could be implemented (I was very frustrated by cowrie's use of reflection).
+
+RESTRICTED SHELLS
+=================
 There seems to be a lot of documentation on escaping restricted shells:
 eg https://null-byte.wonderhowto.com/how-to/escape-restricted-shell-environments-linux-0341685/
 
-Probably better to use docker with an open shell to see what they do.
+In my opinion, it is better to use docker or a vm with an open shell to accept attackers.
 
-DOCKERFILE DESIGN
-=================
-I cannot seem to force docker to use its cache when unminimizing ubuntu.
-It would be unacceptable to redownload all of those packages on each
-run of the shell as it would eat up time and disk space. So I decided to
-use two dockerfiles, one for an unminimized ubuntu base and one for the shell
-environment with the custom user.
+COWRIE MEDIUM-INTERACTION SHELL
+===============================
+Cowrie's built in "medium interaction" fake bash shell is very easy to set up, and is written in
+simple, easily extended python. In some aspects, though, you get back what you put in. Because it is
+essentially a reimplementation of coreutils and other common linux programs, it is extremely easy to
+find missing commands and missing features in those commands. For example, the echo command is
+missing, and commands like gcc and perl simply do nothing. While this approach makes sense for
+logging data about very simple automated attacks, it's obvious that it is not fit for intercepting
+any attacks done by a live human. In my opinion, this makes this part of cowrie pretty much useless
+to our goal of "active defense" against a skilled attacker.
 
-SETTING UP COWRIE
-=================
-There are a few issues with cowrie, which lead me to believe I need to modestly modify it
-or use another ssh proxy.
+COWRIE SSH PROXY
+================
+Cowrie is also able to run as an SSH proxy, allowing you to configure a username and password for a
+remote ssh server and run cowrie authentication and logging as a facade on top of that. This is an
+improvement in verisimilitude over the medium interaction shell mode, as it allows you to run an
+actual shell or full system. However, there are a number of immediate giveaways, such as the
+hostname, username, and password potentially not matching what the attacker used. If the password
+does not match, and the attacker cannot use sudo, it may even be worse for catching simple automated
+attacks than the medium interaction shell.
+
+COWRIE QEMU ISSUES
+==================
+I tried to get cowrie's qemu backend running, but had trouble. It sounds promising and its feature
+set is not documented very thoroughly, so I was hoping to play around with, but I had too much
+trouble with it to ever get it set up. Unfortunately I did not document most of the troubleshooting
+process. It mostly consisted of encountering some error or exception, reading through the
+relevant parts of the code, doing some caveman debugging, and eventually fixing my config file, or
+my libvirt installation, or haphazardly commenting out some code. It was pretty unproductive, as I
+did not grasp the cowrie code architecture well enough to really know what I was doing. I finally
+have given up after encountering an exception, QemuGuestError(), which provides no information and
+that I could not end up fixing. I learned from Fabrizio that qemu errors (in general, not just
+cowrie) are notoriously vague and hard to debug. I am disappointed that I could not get the qemu
+functionality, working. Cowrie is very popular and seemingly widely used by hobbyest honeypot
+operators, so I am surprised I had so much trouble. I did not ever reach out to the developers,
+which I believe was a mistake, and if I return to cowrie in the future, I will do that.
 
 ATTACKER AUTHENTICATION ISSUES
+==============================
 The two default options for authenticating with cowrie are a database of predetermined usernames
-and passwords (this one allows for pattern matching and basic logic, which is pretty interesting),
+and passwords (including using pattern matching and basic logic, which is interesting),
 as well as an authentication system that will accept any username/password after a random number
 of authentication attempts. While the UserDB method is acceptable (and the random auth method seems
-quite lame), it leaves some features to be desired.
+quite lame), it still leaves features to be desired.
 
-One feature I would like to see is locking a login to a specific IP. Here is my idea for the
-functionality. First, authentication should fail a few times. Then, any username/password will
-be accepted. Once an IP address successfully logs into the shell, it is locked to using that
-specific user/pass combo forever. Also, if another IP address attempts authentication with
+One feature I would like is locking a login to a specific IP. Here is my idea for the
+functionality. First, authentication should fail a few times for a new attacker.
+Then, any username/password will be accepted. Once an IP address successfully
+logs into the shell, it is locked to using that specific user/pass combo forever.
+Also, if another IP address attempts authentication with
 a previously accepted combo, it is immediately successful and again locked to using it. To me,
 this represents the most realistic view of a system from the outside. If an attacker successfully
 logged in with one combo and then it failed later in time or from a different IP, suspicion
 would be raised that the system is a honeypot. Similarly it would be suspicious if two different
 combos worked for the same machine.
 
-Cowrie authentication is done via simple python classes. It doesn't look too hard to create this.
-Perhaps this could be further expanded upon by locking persistent filesystems to specific IPs or
-specific login combos.
+Cowrie authentication is done via python classes in core/auth.py. It doesn't look too hard to create
+this. Perhaps this could be further expanded upon by associating persistent filesystems with
+specific IPs or specific login combos. This more involved functionality seems better explored by
+creating new software, rather than extending cowrie
+
+DOCKER SHELL
+============
+I set up a docker-based shell and associated scripts that are able to
+quickly generate realistic ubuntu server environments. I was under the impression that cowrie had a
+feature that would allow you to run a local process as a custom shell, but I was mistaken. I
+attempted to modify cowrie to allow this, but I did not end up grasping the twisted python library
+(that's the library's name, "twisted") based IO structure well enough to be able to implement this.
+
+Although in this document I criticize cowrie for being too easy to determine that it is a honeypot,
+docker also suffers from this issue. It is very easy to tell that you are logged into a docker
+container if attacking one, see details here:
+https://stackoverflow.com/questions/20010199/how-to-determine-if-a-process-runs-inside-lxc-docker
+
+More research is needed into a few topics: if it's possible to hide the fact that a shell is running
+in a docker container; what kind of influence a docker container can have on external processes; how
+likely a total breakout of a container is possible.
+
+I cannot seem to force docker to use its cache when unminimizing ubuntu.
+It would be unacceptable to redownload all of those packages on each
+run of the shell as it would eat up time and disk space. So I decided to
+use two dockerfiles, one for an unminimized ubuntu base that can be cached, and one for the shell
+environment with the custom user.
